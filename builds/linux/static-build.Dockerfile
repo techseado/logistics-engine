@@ -1,10 +1,11 @@
-# FROM --platform=linux/amd64 dunglas/frankenphp:static-builder
-FROM --platform=linux/amd64 docker.io/dunglas/frankenphp:static-builder@sha256:821526b776a26502735d83890cc0a0d579348c510ba6c777df0762cb1c50d967
+# FROM --platform=${FLEETBASE_BUILD_PLATFORM} dunglas/frankenphp:static-builder
+ARG FLEETBASE_BUILD_PLATFORM=linux/amd64
+FROM --platform=${FLEETBASE_BUILD_PLATFORM} docker.io/dunglas/frankenphp:static-builder@sha256:821526b776a26502735d83890cc0a0d579348c510ba6c777df0762cb1c50d967
 
 WORKDIR /go/src/app
 
 # Copy Fleetbase app
-COPY ../../api ./dist/app
+COPY api ./dist/app
 
 # Set working directory to the embedded Fleetbase app
 WORKDIR /go/src/app/dist/app
@@ -25,19 +26,25 @@ RUN chmod +x ./deploy.sh
 # Move back to main app directory before running build-static.sh
 WORKDIR /go/src/app
 
-# Install geos lib
-RUN apk add --no-cache geos geos-dev
+# Install native libraries and headers required by SPC doctor/build.
+RUN apk add --no-cache geos geos-dev gettext-dev
 
 # Inject the libgeos library handlers
 COPY ./builds/linux/spc/libgeos-linux.php ./dist/static-php-cli/src/SPC/builder/linux/library/libgeos.php
 COPY ./builds/linux/spc/libgeos-unix.php ./dist/static-php-cli/src/SPC/builder/unix/library/libgeos.php
 
-# Patch source.json to add geos extension source
-RUN jq '. + {"php-geos": {"type": "url", "url": "https://github.com/libgeos/php-geos/archive/dfe1ab17b0f155cc315bc13c75689371676e02e1.zip", "license": [{"type": "file", "path": "php-geos-dfe1ab17b0f155cc315bc13c75689371676e02e1/MIT-LICENSE"}, {"type": "file", "path": "php-geos-dfe1ab17b0f155cc315bc13c75689371676e02e1/LGPL-2"}]}}' \
+# Inject the geos extension handler: points php-geos' configure at the
+# geos-config SPC installs and makes its link probes work against static libs.
+COPY ./builds/linux/spc/geos-ext.php ./dist/static-php-cli/src/SPC/builder/extension/geos.php
+
+# Patch source.json to add geos extension source. External extensions must land
+# in php-src/ext/<name> ("path"); SPC strips the top-level directory of tarballs
+# but not of zip archives, hence the .tar.gz.
+RUN jq '. + {"php-geos": {"type": "url", "url": "https://github.com/libgeos/php-geos/archive/dfe1ab17b0f155cc315bc13c75689371676e02e1.tar.gz", "filename": "php-geos-dfe1ab17b0f155cc315bc13c75689371676e02e1.tar.gz", "path": "php-src/ext/geos", "license": [{"type": "file", "path": "MIT-LICENSE"}, {"type": "file", "path": "LGPL-2"}]}}' \
   ./dist/static-php-cli/config/source.json > ./dist/static-php-cli/config/source.tmp.json && \
   mv ./dist/static-php-cli/config/source.tmp.json ./dist/static-php-cli/config/source.json
 
-# Pathc source.json to add libgeos library
+# Patch source.json to add libgeos library
 RUN jq '. + {"libgeos": {"type": "url", "url": "https://download.osgeo.org/geos/geos-3.12.1.tar.bz2", "filename": "geos-3.12.1.tar.bz2", "extract": "geos-3.12.1", "build-dir": "build", "license": [{"type": "file", "path": "COPYING"}]}}' \
   ./dist/static-php-cli/config/source.json > ./dist/static-php-cli/config/source.tmp.json && \
   mv ./dist/static-php-cli/config/source.tmp.json ./dist/static-php-cli/config/source.json
@@ -47,8 +54,9 @@ RUN jq '. + {"geos": {"type": "external", "arg-type": "enable", "source": "php-g
   ./dist/static-php-cli/config/ext.json > ./dist/static-php-cli/config/ext.tmp.json && \
   mv ./dist/static-php-cli/config/ext.tmp.json ./dist/static-php-cli/config/ext.json
 
-# Patch lib.json to add libgeos
-RUN jq '. + {"libgeos": {"source": "libgeos", "static-libs-unix": ["libgeos.a", "libgeos_c.a"]}}' \
+# Patch lib.json to add libgeos (dependents first: libgeos_c.a needs libgeos.a,
+# and libgeos is C++, so the C++ runtime has to be linked in).
+RUN jq '. + {"libgeos": {"source": "libgeos", "static-libs-unix": ["libgeos_c.a", "libgeos.a"], "cpp-library": true}}' \
   ./dist/static-php-cli/config/lib.json > ./dist/static-php-cli/config/lib.tmp.json && \
   mv ./dist/static-php-cli/config/lib.tmp.json ./dist/static-php-cli/config/lib.json
 
@@ -69,8 +77,22 @@ ENV SPC_LOG_LEVEL=debug
 # Skip compression
 ENV NO_COMPRESS=1
 
+# GitHub-hosted Linux runners are memory constrained for this full source build.
+ENV SPC_CONCURRENCY=2
+
 # set PHP version
 ENV PHP_VERSION=8.2
+
+# Pin Caddy to the newest release compatible with the pinned FrankenPHP static
+# builder image's Go 1.24.1 toolchain. Unpinned xcaddy resolves latest, and
+# Caddy >= 2.10.2 now requires Go 1.25+.
+ENV CADDY_VERSION=v2.10.0
+
+# build-static.sh defaults XCADDY_ARGS to the Mercure and Vulcain Caddy plugins
+# at their latest versions, which now require Go 1.27 and Caddy >= 2.11 and
+# break the Go 1.24.1 toolchain in the pinned builder image. Fleetbase does not
+# use either plugin, so keep only cbrotli, pinned so nothing resolves to latest.
+ENV XCADDY_ARGS="--with github.com/dunglas/caddy-cbrotli@v1.0.1"
 
 # Move to the app directory
 WORKDIR /go/src/app
@@ -88,6 +110,32 @@ RUN apk add --no-cache build-base && \
 
 # Do not run git pull
 RUN sed -i 's/^[ \t]*git pull/# git pull/' ./build-static.sh
+RUN sed -i 's/[[:space:]]--prefer-pre-built//g' ./build-static.sh
+RUN grep -Fq '${XCADDY_COMMAND} build \' ./build-static.sh && \
+    awk 'index($0, "${XCADDY_COMMAND} build \\") { print "\t${XCADDY_COMMAND} build \"${CADDY_VERSION}\" \\"; patched=1; next } { print } END { exit patched ? 0 : 1 }' ./build-static.sh > ./build-static.sh.tmp && \
+    mv ./build-static.sh.tmp ./build-static.sh && \
+    chmod +x ./build-static.sh && \
+    grep -Fq '${XCADDY_COMMAND} build "${CADDY_VERSION}" \' ./build-static.sh
 
-# Build the FrankenPHP static binary
-RUN EMBED=dist/app ./build-static.sh
+# Stabilize SPC/curl downloads on networks where HTTP/2 streams are reset.
+RUN printf '%s\n' \
+      'http1.1' \
+      'retry = 5' \
+      'retry-delay = 5' \
+      'retry-all-errors' \
+      'connect-timeout = 30' \
+      'max-time = 300' \
+      'speed-limit = 1024' \
+      'speed-time = 60' \
+    > /root/.curlrc
+
+# Build the FrankenPHP static binary. SPC downloads can fail transiently, so
+# retry the final build step without hiding the eventual failure.
+RUN for attempt in 1 2 3 4 5; do \
+      rm -f dist/cache_key; \
+      EMBED=dist/app ./build-static.sh && exit 0; \
+      echo "FrankenPHP static build attempt ${attempt} failed." >&2; \
+      rm -f dist/cache_key; \
+      if [ "$attempt" -lt 5 ]; then sleep "$((attempt * 15))"; fi; \
+    done; \
+    exit 1

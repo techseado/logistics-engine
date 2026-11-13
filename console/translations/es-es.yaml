@@ -578,6 +578,41 @@ auth:
       forgot-password-label: ¿Olvidaste tu contraseña?
       sign-in-button: Iniciar sesión
       create-account-button: Crear una nueva cuenta
+    oauth:
+      divider: 'O continuar con'
+      continue-with: 'Continuar con {provider}'
+      signing-in: 'Iniciando sesión...'
+      finish-signup: 'Termine de configurar su cuenta de Fleetbase para continuar.'
+      connected-accounts: 'Cuentas vinculadas'
+      connected-accounts-help: 'Inicie sesión con un proveedor en lugar de una contraseña. Puede vincular más de uno.'
+      linked-heading: 'Vinculadas'
+      available-heading: 'Disponibles para vincular'
+      link-button: 'Vincular'
+      unlink-button: 'Desvincular'
+      unlink-title: '¿Desvincular {provider}?'
+      unlink-body: 'Ya no podrá iniciar sesión con {provider}. Puede volver a vincularlo más adelante.'
+      linked: 'Proveedor vinculado a su cuenta.'
+      auto-linked: '{provider} ya está vinculado a su cuenta. A partir de ahora puede iniciar sesión con él.'
+      existing-account: 'Ya tiene una cuenta, así que hemos iniciado su sesión.'
+      unlinked: '{provider} desvinculado.'
+      errors:
+        generic: 'No se pudo completar el inicio de sesión. Inténtelo de nuevo.'
+        access-denied: 'Se canceló el inicio de sesión.'
+        provider-error: 'El proveedor de inicio de sesión informó de un problema. Inténtelo de nuevo.'
+        provider-disabled: 'Ese método de inicio de sesión no está disponible.'
+        invalid-state: 'Ese enlace de inicio de sesión ya no es válido. Inténtelo de nuevo.'
+        exchange-failed: 'No se pudo contactar con el proveedor de inicio de sesión. Inténtelo de nuevo.'
+        expired: 'Esa sesión de inicio de sesión ha caducado. Inténtelo de nuevo.'
+        hosted-domain: 'Su cuenta no pertenece a un dominio permitido.'
+        registration-disabled: 'Los nuevos registros no están disponibles.'
+        link-required: 'Ya existe una cuenta con este correo electrónico. Inicie sesión y vincule este proveedor desde la configuración de su cuenta.'
+        customer-account: 'Las cuentas de cliente deben iniciar sesión a través del portal de clientes.'
+        not-verified: 'Su cuenta debe ser verificada para continuar.'
+        rate-limited: 'Demasiados intentos. Inténtelo de nuevo en breve.'
+        already-linked: 'Ese proveedor ya está vinculado a su cuenta.'
+        identity-already-linked: 'Esa cuenta ya está vinculada a otro usuario de Fleetbase.'
+        last-credential: 'Establezca una contraseña o vincule otro proveedor primero, o no podrá iniciar sesión.'
+        link-failed: 'No se pudo vincular ese proveedor. Inténtelo de nuevo.'
     slow-connection-message: Experimentando problemas de conectividad.
   reset-password:
     success-message: ¡Tu contraseña ha sido restablecida! Inicia sesión para continuar.
@@ -596,6 +631,18 @@ auth:
         help-text: Introduce una contraseña de al menos 6 caracteres para continuar.
       submit-button: Restablecer contraseña
       back-button: Volver
+  confirm-email-change:
+    success-message: Your email address has been updated.
+    invalid-verification-code: This email change link is invalid or expired.
+    title: Confirm email change
+    message-text: Confirm this change to update the login email for your Fleetbase account.
+    form:
+      code:
+        label: Confirmation code
+        help-text: The confirmation code from your email.
+      submit-button: Confirm Email Change
+      back-button: Back
+
 console:
   create-or-join-organization:
     modal-title: Crear o unirse a una organización
@@ -625,6 +672,8 @@ console:
       filesystem: Sistema de archivos
       queue: Cola
       socket: Socket
+      oauth: 'Inicio de sesión OAuth'
+      oauth-apps: "Aplicaciones OAuth"
       push-notifications: Notificaciones push
     schedule-monitor:
       schedule-monitor: Monitor de programación
@@ -646,6 +695,8 @@ console:
         title: Configuración de la base de datos
       filesystem:
         title: Configuración del sistema de archivos
+      oauth:
+        title: 'Configuración del inicio de sesión OAuth'
       mail:
         title: Configuración de correo
       notification-channels:
@@ -715,6 +766,44 @@ invite:
       recibido por correo electrónico y haz clic en continuar.
     invitation-code-sent-text: Tu código de invitación
     accept-invitation-text: Aceptar invitación
+oauth:
+  authorize:
+    title: "Continuar con Fleetbase"
+    loading: "Comprobando la solicitud..."
+    heading: "{app} quiere acceder a tu cuenta de Fleetbase"
+    official: "Hecha por Fleetbase"
+    signed-in-as: "Sesión iniciada como {email}"
+    not-you: "¿No eres tú?"
+    organization-label: "Organización que compartir"
+    organization-help: "La aplicación solo puede ver y cambiar esta organización. Puedes quitarle el acceso en cualquier momento en Cuenta → Autenticación."
+    not-admin: "solo los administradores pueden compartirla"
+    no-organization: "No administras ninguna organización que puedas compartir. Pide a un administrador de tu organización que conecte la aplicación."
+    your-organization: "tu organización"
+    will-be-able-to: "{app} podrá:"
+    allow: "Permitir"
+    cancel: "Cancelar"
+    footnote: "Lo compartes con {app}, no con Fleetbase."
+    privacy: "Política de privacidad"
+    terms: "Condiciones"
+    reauthenticate: "Inicia sesión de nuevo para continuar..."
+    errors:
+      generic: "No se pudo completar esta solicitud."
+      invalid-client: "Esta aplicación no está registrada en Fleetbase o se ha desactivado."
+      invalid-request: "El enlace de la aplicación no es válido. Vuelve a la aplicación e inténtalo de nuevo."
+      invalid-scope: "La aplicación pidió un acceso que no tiene permitido."
+      no-organization: "Elige una organización que administres para compartirla con esta aplicación."
+      go-back: "Puedes cerrar esta página y volver a la aplicación."
+  connected-apps:
+    title: "Aplicaciones conectadas"
+    help: "Aplicaciones en las que iniciaste sesión con tu cuenta de Fleetbase y lo que puede hacer cada una. Al quitar una aplicación se cierra tu sesión en ella y su acceso termina al instante."
+    organization: "Tiene acceso a {organization}"
+    sign-in-only: "Solo inicio de sesión"
+    last-used: "último uso {date}"
+    never-used: "sin usar todavía"
+    remove-button: "Quitar acceso"
+    remove-title: "¿Quitar {app}?"
+    remove-body: "{app} cerrará sesión y perderá el acceso al instante. Para volver a usarla, tendrás que autorizarla de nuevo."
+    removed: "{app} ya no tiene acceso."
 onboard:
   index:
     title: Crea tu cuenta
@@ -735,6 +824,8 @@ onboard:
     confirm-password: Confirma tu contraseña
     confirm-password-help-text: Solo para confirmar la contraseña que introdujiste
       arriba.
+    oauth-verified: 'Su identidad está verificada. No necesita contraseña: iniciará sesión con su proveedor.'
+    oauth-divider: 'O regístrese con su correo'
     continue-button-text: Continuar
   verify-email:
     header-title: Verificación de cuenta
@@ -753,11 +844,11 @@ onboard:
       resend-email: Reenviar correo electrónico
       send-by-sms: Enviar por SMS
 install:
-  installer-header: Instalador
-  failed-message-sent: ¡La instalación falló! Haz clic en el botón de abajo para reintentar
-    la instalación.
-  retry-install: Reintentar instalación
-  start-install: Iniciar instalación
+  not-configured-title: Fleetbase is not installed or configured
+  not-configured-message: Complete setup from the Fleetbase CLI or application container, then reload this page once the database, migrations, and seed data are ready.
+  running-locally-docs: See running locally docs
+  cloud-docs: See cloud deployment docs
+  refreshing: Installation complete, refreshing...
 layout:
   header:
     menus:

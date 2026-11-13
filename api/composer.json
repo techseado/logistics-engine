@@ -18,18 +18,20 @@
         }
     ],
     "require": {
-        "php": ">=8.0 <=8.2.30",
+        "php": ">=8.0 <8.3",
         "appstract/laravel-opcache": "^4.0",
-        "fleetbase/core-api": "^1.6.48",
-        "fleetbase/fleetops-api": "^0.6.49",
-        "fleetbase/registry-bridge": "^0.1.9",
-        "fleetbase/storefront-api": "^0.4.14",
-        "fleetbase/ledger-api": "^0.0.3",
-        "fleetbase/valhalla-api": "^0.0.4",
-        "fleetbase/vroom-api": "^0.0.4",
+        "fleetbase/core-api": "^1.6.74",
+        "fleetbase/ai": "^0.0.5",
+        "fleetbase/fleetops-api": "^0.6.75",
+        "fleetbase/registry-bridge": "^0.1.11",
+        "fleetbase/customer-portal-api": "^0.0.16",
+        "fleetbase/storefront-api": "^0.4.31",
+        "fleetbase/ledger-api": "^0.0.13",
+        "fleetbase/valhalla-api": "^0.0.5",
+        "fleetbase/vroom-api": "^0.0.5",
         "guzzlehttp/guzzle": "^7.0.1",
         "laravel/framework": "^10.0",
-        "laravel/octane": "^2.3",
+        "laravel/octane": "~2.22.0",
         "laravel/tinker": "^2.9",
         "league/flysystem-aws-s3-v3": "^3.0",
         "maatwebsite/excel": "^3.1",
@@ -61,6 +63,8 @@
                 "fleetbase/fleetops-api",
                 "fleetbase/storefront-api",
                 "fleetbase/ledger-api",
+                "fleetbase/customer-portal-api",
+                "fleetbase/ai",
                 "fleetbase/valhalla-api",
                 "fleetbase/vroom-api"
             ]
@@ -101,6 +105,17 @@
         ],
         "clean-logs": [
             "composer run-script clear-logs"
+        ],
+        "test:unit": "phpunit --colors=always",
+        "test:coverage:clover": "mkdir -p coverage && XDEBUG_MODE=coverage phpunit --coverage-clover=coverage/clover.xml --colors=always",
+        "coverage:summary": "php scripts/coverage-summary.php coverage/clover.xml",
+        "coverage:check": "php scripts/coverage-summary.php coverage/clover.xml --fail-under=100",
+        "coverage:baseline": [
+            "@test:coverage:clover",
+            "@coverage:summary"
+        ],
+        "test": [
+            "@test:unit"
         ]
     },
     "extra": {

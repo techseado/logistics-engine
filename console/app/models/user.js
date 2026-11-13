@@ -8,6 +8,7 @@ import config from 'ember-get-config';
 
 export default class UserModel extends Model {
     /** @ids */
+    @attr('string') uuid;
     @attr('string') public_id;
     @attr('string') company_uuid;
     @attr('string') avatar_uuid;
@@ -32,11 +33,11 @@ export default class UserModel extends Model {
     @attr('string') locale;
     @attr('boolean') is_online;
     @attr('boolean') is_admin;
-    @attr('boolean') is_subscribed;
-    @attr('boolean') is_trialing;
     @attr('boolean') company_onboarding_completed;
+    @attr('boolean') two_factor_enabled;
+    @attr('string') two_factor_method;
+    @attr('raw') oauth_providers;
     @attr('raw') meta;
-    @attr('raw') subscription;
 
     /** @relationships */
     @belongsTo('role') role;
@@ -47,7 +48,6 @@ export default class UserModel extends Model {
     @attr('date') last_seen_at;
     @attr('date') phone_verified_at;
     @attr('date') email_verified_at;
-    @attr('date') trial_ends_at;
     @attr('date') last_login;
     @attr('date') deleted_at;
     @attr('date') created_at;

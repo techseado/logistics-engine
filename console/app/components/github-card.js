@@ -7,6 +7,10 @@ import { task } from 'ember-concurrency';
 import { storageFor } from 'ember-local-storage';
 import { add, isPast } from 'date-fns';
 import fetch from 'fetch';
+import { faGithub } from '@fortawesome/free-brands-svg-icons';
+
+const REPOSITORY_URL = 'https://github.com/fleetbase/fleetbase';
+const compactNumber = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
 
 export default class GithubCardComponent extends Component {
     @storageFor('local-cache') localCache;
@@ -16,6 +20,28 @@ export default class GithubCardComponent extends Component {
         },
     };
     @tracked tags = [];
+    githubIcon = faGithub;
+    repositoryUrl = REPOSITORY_URL;
+
+    /**
+     * The repository counters shown in the card's footer, compacted (e.g. 3.9K).
+     */
+    get stats() {
+        const stat = (label, icon, count, path) => ({
+            label,
+            icon,
+            url: `${REPOSITORY_URL}${path}`,
+            value: typeof count === 'number' ? compactNumber.format(count) : '-',
+            title: typeof count === 'number' ? `${count.toLocaleString()} ${label.toLowerCase()}` : label,
+        });
+
+        return [
+            stat('Stars', 'star', this.data.stargazers_count, '/stargazers'),
+            stat('Watchers', 'eye', this.data.subscribers_count, '/watchers'),
+            stat('Forks', 'code-fork', this.data.forks_count, '/forks'),
+            stat('Issues', 'circle-dot', this.data.open_issues_count, '/issues'),
+        ];
+    }
 
     @computed('tags.length') get latestRelease() {
         if (isArray(this.tags) && this.tags.length) {
@@ -26,7 +52,7 @@ export default class GithubCardComponent extends Component {
     }
 
     @computed('data.releases_url', 'latestRelease.name') get releaseUrl() {
-        let url = 'https://github.com/fleetbase/fleetbase/releases';
+        let url = `${REPOSITORY_URL}/releases`;
 
         if (!isBlank(this.latestRelease?.name)) {
             url += '/tag/' + this.latestRelease.name;
@@ -53,6 +79,13 @@ export default class GithubCardComponent extends Component {
         } else {
             // Fetch new data
             const response = yield fetch('https://api.github.com/repos/fleetbase/fleetbase', { cache: 'default' });
+
+            // The component can be torn down mid-request; writing tracked state afterwards
+            // throws "Cannot create a new tag ... after it has been destroyed".
+            if (this.isDestroying || this.isDestroyed) {
+                return;
+            }
+
             if (response.ok) {
                 this.data = yield response.json();
                 this.localCache.set('fleetbase-github-data', this.data);
@@ -73,6 +106,11 @@ export default class GithubCardComponent extends Component {
         } else {
             // Fetch new tags
             const response = yield fetch('https://api.github.com/repos/fleetbase/fleetbase/tags', { cache: 'default' });
+
+            if (this.isDestroying || this.isDestroyed) {
+                return;
+            }
+
             if (response.ok) {
                 this.tags = yield response.json();
                 this.localCache.set('fleetbase-github-tags', this.tags);

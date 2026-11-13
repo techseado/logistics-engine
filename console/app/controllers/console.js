@@ -6,6 +6,7 @@ import { action } from '@ember/object';
 import { isArray } from '@ember/array';
 import { dasherize } from '@ember/string';
 import first from '@fleetbase/ember-core/utils/first';
+import window from 'ember-window-mock';
 
 export default class ConsoleController extends Controller {
     @service currentUser;
@@ -18,25 +19,12 @@ export default class ConsoleController extends Controller {
     @service universe;
     @service abilities;
     @tracked organizations = [];
-    @tracked sidebarContext;
     @tracked menuItems = [];
     @tracked userMenuItems = [];
     @tracked organizationMenuItems = [];
 
     get currentRouteClass() {
         return dasherize(this.router.currentRouteName.replace(/\./g, ' '));
-    }
-
-    /**
-     * Sets the sidebar context
-     *
-     * @param {SidebarContext} sidebarContext
-     * @memberof ConsoleController
-     */
-    @action setSidebarContext(sidebarContext) {
-        this.sidebarContext = sidebarContext;
-        this.universe.sidebarContext = sidebarContext;
-        this.universe.trigger('sidebarContext.available', sidebarContext);
     }
 
     /**

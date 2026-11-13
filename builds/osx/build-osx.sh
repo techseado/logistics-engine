@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -e
+set -o pipefail
 
 log() {
     echo -e "\033[1;34m[🔧 $1]\033[0m"
@@ -26,6 +27,19 @@ OSX_DIR="$ROOT_DIR/builds/osx"
 DIST_DIR="$ROOT_DIR/builds/dist"
 APP_DIR="$ROOT_DIR/api"
 BREW_PREFIX="/opt/homebrew"
+STATIC_PHP_CLI_VERSION="2.5.2"
+TARGET_PHP_VERSION="8.2"
+TOOLING_PHP_VERSION="8.4.0"
+# Pin FrankenPHP to the last release this script and the static-php-cli 2.5.2
+# patches were verified against. main has since moved to Go 1.27, Caddy 2.11
+# and a rewritten build-static.sh that the patches below no longer apply to.
+FRANKENPHP_VERSION="v1.9.0"
+# Caddy >= 2.10.2 requires Go 1.25+ and the Mercure/Vulcain plugins that
+# build-static.sh adds by default now require Go 1.27. Pin Caddy to the version
+# FrankenPHP v1.9.0 targets and keep only the pinned cbrotli plugin (Fleetbase
+# does not use Mercure or Vulcain). Mirrors builds/linux/static-build.Dockerfile.
+CADDY_VERSION="v2.10.0"
+XCADDY_ARGS="--with github.com/dunglas/caddy-cbrotli@v1.0.1"
 
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
@@ -33,26 +47,47 @@ BINARY_NAME="fleetbase-$OS-$ARCH"
 
 log "Binary will be: $BINARY_NAME"
 
+require_command() {
+    if ! command -v "$1" >/dev/null 2>&1; then
+        log_error "Required command not found: $1"
+        exit 1
+    fi
+}
+
+require_file() {
+    if [ ! -f "$1" ]; then
+        log_error "Required file missing: $1"
+        exit 1
+    fi
+}
+
+require_dir() {
+    if [ ! -d "$1" ]; then
+        log_error "Required directory missing: $1"
+        exit 1
+    fi
+}
+
+require_command php
+require_command git
+require_command jq
+require_command curl
+require_command brew
+
+if [[ "$ARCH" != "arm64" ]]; then
+    log_warn "This script is tuned for Apple Silicon builds; detected architecture: $ARCH"
+fi
+
+mkdir -p "$DIST_DIR"
+if [[ ! -w "$DIST_DIR" ]]; then
+    log_error "Dist directory is not writable: $DIST_DIR"
+    exit 1
+fi
+
 # Setup PHP 8.4
 log "Detecting current PHP version..."
 ORIGINAL_PHP_PATH="$(which php)"
 ORIGINAL_PHP_VERSION="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION.".".PHP_RELEASE_VERSION;' 2>/dev/null)"
-IS_ASDF_MANAGED=false
-
-if [[ "$ORIGINAL_PHP_PATH" == *".asdf"* ]]; then
-    IS_ASDF_MANAGED=true
-fi
-
-# 🔁 Trap to restore PHP when script exits
-trap 'if [ "$IS_ASDF_MANAGED" = true ]; then
-          log "Restoring asdf-managed PHP version: $ORIGINAL_PHP_VERSION"
-          asdf set php "$ORIGINAL_PHP_VERSION" || true
-          log "Reverted to PHP $(php -v | head -n 1)"
-      else
-          log "Unsetting asdf set to restore system PHP"
-          asdf set php system || true
-          log "Reverted to PHP $(php -v | head -n 1)"
-      fi' EXIT
 
 log "Detected PHP version: $ORIGINAL_PHP_VERSION"
 log "Detected PHP binary: $ORIGINAL_PHP_PATH"
@@ -60,12 +95,15 @@ log "Detected PHP binary: $ORIGINAL_PHP_PATH"
 # ───────────────────────────────────────────────────────────────────────────────
 # If the *current* php is already 8.4.x, we skip the entire asdf install step
 # ───────────────────────────────────────────────────────────────────────────────
-if [[ "$ORIGINAL_PHP_PATH" == "$BREW_PREFIX/bin/php" && "$ORIGINAL_PHP_VERSION" =~ ^8\.4\. ]]; then
-    log "Homebrew PHP $ORIGINAL_PHP_VERSION detected at $ORIGINAL_PHP_PATH — skipping asdf build/install."
+# static-php-cli 2.5.2 only needs PHP >= 8.3 as its tooling runtime, so any
+# PHP 8.3+ already on PATH (e.g. a linked Homebrew php@8.4 on CI) is enough.
+if [[ "$ORIGINAL_PHP_VERSION" =~ ^8\.([3-9]|[1-9][0-9])\. ]]; then
+    log "PHP $ORIGINAL_PHP_VERSION detected at $ORIGINAL_PHP_PATH — skipping asdf build/install."
 else
     # Only install under asdf if we don’t already have 8.4.0 installed
-    log "No Homebrew PHP 8.4 detected (found $ORIGINAL_PHP_PATH $ORIGINAL_PHP_VERSION), using asdf to build/install."
-    if ! asdf list php | grep -q "8.4.0"; then
+    require_command asdf
+    log "No Homebrew PHP 8.4 detected (found $ORIGINAL_PHP_PATH $ORIGINAL_PHP_VERSION), using asdf shell-local PHP $TOOLING_PHP_VERSION."
+    if ! asdf list php | grep -q "$TOOLING_PHP_VERSION"; then
         # Use brew to install required dependencies for asdf php management
         log "Checking and installing Homebrew packages required for PHP 8.4 build..."
 
@@ -84,25 +122,27 @@ else
         export PKG_CONFIG_PATH="$BREW_PREFIX/opt/openssl/lib/pkgconfig:$BREW_PREFIX/opt/oniguruma/lib/pkgconfig:$BREW_PREFIX/opt/libsodium/lib/pkgconfig:$BREW_PREFIX/opt/libzip/lib/pkgconfig:$BREW_PREFIX/opt/gd/lib/pkgconfig:$BREW_PREFIX/opt/zlib/lib/pkgconfig:$BREW_PREFIX/opt/openssl@3/lib/pkgconfig:$BREW_PREFIX/opt/libxml2/lib/pkgconfig:$BREW_PREFIX/opt/curl/lib/pkgconfig:$BREW_PREFIX/opt/sqlite3/lib/pkgconfig:$BREW_PREFIX/opt/freetype/lib/pkgconfig:$BREW_PREFIX/opt/jpeg/lib/pkgconfig:$BREW_PREFIX/opt/libpng/lib/pkgconfig"
         export PHP_CONFIGURE_OPTIONS="--with-openssl=$(brew --prefix openssl) --with-iconv=$(brew --prefix libiconv)"
 
-        log "Installing PHP 8.4.0 with asdf..."
-        asdf install php 8.4.0 --verbose
+        log "Installing PHP $TOOLING_PHP_VERSION with asdf..."
+        asdf install php "$TOOLING_PHP_VERSION" --verbose
     else
-        log "asdf already has PHP 8.4.0 installed, skipping"
+        log "asdf already has PHP $TOOLING_PHP_VERSION installed, skipping"
     fi
 
-    log "Switching to PHP 8.4.0 with asdf set..."
-    asdf set php 8.4.0 --home 
+    log "Activating PHP $TOOLING_PHP_VERSION for this shell only..."
+    export ASDF_PHP_VERSION="$TOOLING_PHP_VERSION"
+    log "Build tooling PHP is now: $(php -r 'echo PHP_VERSION;' 2>/dev/null)"
 fi
 
-# Clone FrankenPHP
+# Clone FrankenPHP (pinned)
 if [ ! -d "$OSX_DIR/frankenphp" ]; then
-    log "Cloning FrankenPHP..."
-    git clone https://github.com/dunglas/frankenphp "$OSX_DIR/frankenphp"
+    log "Cloning FrankenPHP $FRANKENPHP_VERSION..."
+    git clone --depth 1 --branch "$FRANKENPHP_VERSION" https://github.com/dunglas/frankenphp "$OSX_DIR/frankenphp"
 else
     log_warn "FrankenPHP already cloned. Skipping."
 fi
 
 cd "$OSX_DIR/frankenphp"
+require_file "$OSX_DIR/frankenphp/build-static.sh"
 
 # Patch build script
 log "Patching build-static.sh to skip git pull..."
@@ -110,32 +150,68 @@ sed -i '' 's/^[ \t]*git pull/# git pull/' ./build-static.sh
 
 # Set environment variables
 log "Exporting build environment variables..."
-export PHP_VERSION=8.2
+export FRANKENPHP_VERSION
+export CADDY_VERSION
+export XCADDY_ARGS
+export PHP_VERSION="$TARGET_PHP_VERSION"
 export PHP_EXTENSIONS="pdo_mysql,gd,bcmath,redis,intl,zip,gmp,apcu,opcache,imagick,sockets,pcntl,geos,iconv,mbstring,fileinfo,ctype,tokenizer,simplexml,dom,filter,session"
 export PHP_EXTENSION_LIBS="libgeos,libzip,bzip2,libxml2,openssl,zlib"
 export SPC_REL_TYPE=source
 export NO_COMPRESS=1
 export SPC_OPT_BUILD_ARGS="--debug"
 export CMAKE_OSX_ARCHITECTURES=arm64
+# The ar shipped with Xcode 26 silently drops every member after a non-Mach-O
+# member. PHP's libtool adds the EXTRA_LIBS static libraries as members of
+# libphp.a (php-src#12082), which left libphp.a with nothing but its symbol
+# index. Wrap ar so .a operands never get added; FrankenPHP links those
+# libraries itself via spc-config. php-src's libtool honours AR from the env.
+chmod +x "$ROOT_DIR/builds/osx/spc/ar-no-nested-archives"
+export AR="$ROOT_DIR/builds/osx/spc/ar-no-nested-archives"
+# CMake 4 (shipped on current macOS runners) refuses projects that declare
+# cmake_minimum_required < 3.5, which several static-php-cli 2.5.2 library
+# sources (e.g. freetype) still do. This env var tells CMake to configure anyway.
+export CMAKE_POLICY_VERSION_MINIMUM=3.5
 
 # Clone and prepare static-php-cli in dist/
 STATIC_PHP_CLI_DIR="$OSX_DIR/frankenphp/dist/static-php-cli"
 if [ ! -d "$STATIC_PHP_CLI_DIR" ]; then
-    log "Cloning static-php-cli into dist/..."
-    git clone --depth 1 --branch 2.5.2 https://github.com/crazywhalecc/static-php-cli.git "$STATIC_PHP_CLI_DIR"
+    log "Cloning static-php-cli $STATIC_PHP_CLI_VERSION into dist/..."
+    git clone --depth 1 --branch "$STATIC_PHP_CLI_VERSION" https://github.com/crazywhalecc/static-php-cli.git "$STATIC_PHP_CLI_DIR"
 else
     log_warn "static-php-cli already exists in dist/. Skipping clone."
 fi
 
+require_dir "$STATIC_PHP_CLI_DIR/src/SPC/builder/unix/library"
+require_dir "$STATIC_PHP_CLI_DIR/src/SPC/builder/macos/library"
+require_file "$STATIC_PHP_CLI_DIR/src/SPC/builder/unix/UnixBuilderBase.php"
+require_file "$STATIC_PHP_CLI_DIR/config/source.json"
+require_file "$STATIC_PHP_CLI_DIR/config/ext.json"
+require_file "$STATIC_PHP_CLI_DIR/config/lib.json"
+require_file "$ROOT_DIR/builds/osx/spc/libgeos-unix.php"
+require_file "$ROOT_DIR/builds/osx/spc/libgeos-macos.php"
+require_file "$ROOT_DIR/builds/osx/spc/geos-ext.php"
+require_file "$ROOT_DIR/builds/osx/spc/UnixBuilderBase-macos.php"
+require_file "$ROOT_DIR/builds/osx/spc/MacOSBuilder-macos.php"
+require_file "$ROOT_DIR/builds/osx/spc/ar-no-nested-archives"
+require_file "$STATIC_PHP_CLI_DIR/src/SPC/builder/macos/MacOSBuilder.php"
+
 # Inject libgeos support
-log "Injecting libgeos patch files..."
+log "Injecting libgeos patch files for pinned static-php-cli $STATIC_PHP_CLI_VERSION..."
 cp "$ROOT_DIR/builds/osx/spc/libgeos-unix.php" "$STATIC_PHP_CLI_DIR/src/SPC/builder/unix/library/libgeos.php"
 cp "$ROOT_DIR/builds/osx/spc/libgeos-macos.php" "$STATIC_PHP_CLI_DIR/src/SPC/builder/macos/library/libgeos.php"
+# geos extension handler: points php-geos' configure at the geos-config SPC
+# installs and makes its link probes work against the static libraries.
+cp "$ROOT_DIR/builds/osx/spc/geos-ext.php" "$STATIC_PHP_CLI_DIR/src/SPC/builder/extension/geos.php"
 cp "$ROOT_DIR/builds/osx/spc/UnixBuilderBase-macos.php" "$STATIC_PHP_CLI_DIR/src/SPC/builder/unix/UnixBuilderBase.php"
+# Strip nested .a members from libphp.a instead of the `ar x` / `ar rcs` repack,
+# which yields no .o files on the Xcode 26 toolchain (see the patched file).
+cp "$ROOT_DIR/builds/osx/spc/MacOSBuilder-macos.php" "$STATIC_PHP_CLI_DIR/src/SPC/builder/macos/MacOSBuilder.php"
 
 # Patch SPC config
 log "Patching SPC config files (source.json, ext.json, lib.json)..."
-jq '. + {"php-geos": {"type": "url", "url": "https://github.com/libgeos/php-geos/archive/dfe1ab17b0f155cc315bc13c75689371676e02e1.zip", "license": [{"type": "file", "path": "php-geos-dfe1ab17b0f155cc315bc13c75689371676e02e1/MIT-LICENSE"}, {"type": "file", "path": "php-geos-dfe1ab17b0f155cc315bc13c75689371676e02e1/LGPL-2"}]}}' \
+# External extensions must land in php-src/ext/<name> ("path"); SPC strips the
+# top-level directory of tarballs but not of zip archives, hence the .tar.gz.
+jq '. + {"php-geos": {"type": "url", "url": "https://github.com/libgeos/php-geos/archive/dfe1ab17b0f155cc315bc13c75689371676e02e1.tar.gz", "filename": "php-geos-dfe1ab17b0f155cc315bc13c75689371676e02e1.tar.gz", "path": "php-src/ext/geos", "license": [{"type": "file", "path": "MIT-LICENSE"}, {"type": "file", "path": "LGPL-2"}]}}' \
   "$STATIC_PHP_CLI_DIR/config/source.json" > "$STATIC_PHP_CLI_DIR/config/source.tmp.json" && \
   mv "$STATIC_PHP_CLI_DIR/config/source.tmp.json" "$STATIC_PHP_CLI_DIR/config/source.json"
 
@@ -143,7 +219,8 @@ jq '. + {"libgeos": {"type": "url", "url": "https://download.osgeo.org/geos/geos
   "$STATIC_PHP_CLI_DIR/config/source.json" > "$STATIC_PHP_CLI_DIR/config/source.tmp.json" && \
   mv "$STATIC_PHP_CLI_DIR/config/source.tmp.json" "$STATIC_PHP_CLI_DIR/config/source.json"
 
-jq '. + {"libgeos": {"source": "libgeos", "static-libs-unix": ["libgeos.a", "libgeos_c.a"]}}' \
+# Dependents first: libgeos_c.a needs libgeos.a, and libgeos is C++.
+jq '. + {"libgeos": {"source": "libgeos", "static-libs-unix": ["libgeos_c.a", "libgeos.a"], "cpp-library": true}}' \
   "$STATIC_PHP_CLI_DIR/config/lib.json" > "$STATIC_PHP_CLI_DIR/config/lib.tmp.json" && \
   mv "$STATIC_PHP_CLI_DIR/config/lib.tmp.json" "$STATIC_PHP_CLI_DIR/config/lib.json"
 
@@ -163,7 +240,20 @@ log "Patching build-static.sh to skip git pull and composer install..."
 sed -i '' 's/^[[:space:]]*git pull/# git pull/' "$OSX_DIR/frankenphp/build-static.sh"
 
 # Patch add CoreServices framework for Caddy build on OSX
-sed -i '' 's/-framework CoreFoundation -framework SystemConfiguration/& -framework CoreServices/' "$OSX_DIR/frankenphp/build-static.sh"
+if grep -q -- '-framework CoreFoundation -framework SystemConfiguration' "$OSX_DIR/frankenphp/build-static.sh"; then
+    sed -i '' 's/-framework CoreFoundation -framework SystemConfiguration/& -framework CoreServices/' "$OSX_DIR/frankenphp/build-static.sh"
+else
+    log_error "Unable to patch CoreServices framework: expected Caddy linker flags were not found."
+    exit 1
+fi
+
+# Pin the Caddy version xcaddy builds (see CADDY_VERSION above).
+log "Patching build-static.sh to pin Caddy to $CADDY_VERSION..."
+perl -0pi -e 's/(\$\{XCADDY_COMMAND\} build) \\\n/$1 "\$\{CADDY_VERSION\}" \\\n/' "$OSX_DIR/frankenphp/build-static.sh"
+if ! grep -Fq '${XCADDY_COMMAND} build "${CADDY_VERSION}" \' "$OSX_DIR/frankenphp/build-static.sh"; then
+    log_error "Unable to pin Caddy version: expected xcaddy build line was not found."
+    exit 1
+fi
 
 # ── work around 403 on GH macOS runners ────────────────────────────────────────
 log "Patching curl to use a browser-like User-Agent (to avoid 403s)…"

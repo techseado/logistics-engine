@@ -7,10 +7,14 @@ export default class Router extends EmberRouter {
 }
 
 Router.map(function () {
-    this.route('virtual', { path: '/:slug' });
+    // A public page can carry more of its own path, e.g. /~/t/{company}/{tracking number}:
+    // the `virtual` route still renders it, and the page reads the rest from the URL.
+    this.route('virtual', { path: '/~/:slug' }, function () {
+        this.route('path', { path: '/*path' });
+    });
     this.route('install');
     this.route('onboard', function () {
-        this.route('verify-email');
+        this.route('index', { path: '/' });
     });
     this.route('auth', function () {
         this.route('login', { path: '/' });
@@ -18,7 +22,10 @@ Router.map(function () {
         this.route('reset-password', { path: '/reset-password/:id' });
         this.route('two-fa');
         this.route('verification');
+        this.route('confirm-email-change', { path: '/confirm-email-change/:id' });
+        this.route('verify-contact', { path: '/verify-contact/:id' });
         this.route('portal-login', { path: '/portal' });
+        this.route('oauth-callback', { path: '/oauth/callback' });
     });
     this.route('invite', { path: 'join' }, function () {
         this.route('for-driver', { path: '/fleet/:public_id' });
@@ -30,10 +37,13 @@ Router.map(function () {
         this.route('account', function () {
             this.route('virtual', { path: '/:slug' });
             this.route('auth');
+            this.route('organizations');
         });
         this.route('settings', function () {
             this.route('virtual', { path: '/:slug' });
             this.route('two-fa');
+            this.route('auth');
+            this.route('notifications');
         });
         this.route('virtual', { path: '/:slug' });
         this.route('admin', function () {
@@ -48,12 +58,23 @@ Router.map(function () {
                 this.route('socket');
             });
             this.route('branding');
-            this.route('notifications');
             this.route('two-fa-settings');
+            this.route('oauth-settings');
+            this.route('platform-api-token');
+            this.route('api-consumers');
+            this.route('rate-limits');
+            this.route('sms-guard');
+            this.route('database-backups');
             this.route('virtual', { path: '/:slug' });
             this.route('organizations', function () {
-                this.route('index', { path: '/' }, function () {
-                    this.route('users', { path: '/:public_id/users' });
+                this.route('index', { path: '/' });
+                this.route('details', { path: '/:public_id' }, function () {
+                    this.route('index', { path: '/' });
+                    this.route('users');
+                    this.route('extensions');
+                    this.route('activity');
+                    this.route('settings');
+                    this.route('extensions-tab', { path: '/extensions/:slug' });
                 });
             });
             this.route('schedule-monitor', function () {
